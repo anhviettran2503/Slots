@@ -2,19 +2,9 @@ import * as PIXI from 'pixi.js';
 import { MainApp } from './app';
 import Server from './Server';
 
-const symbolTextures = {
-    // '1' : null,
-    // '2' : null,
-    // '3' : null,
-    // '4' : null,
-    // '5' : null,
-    // '6' : null,
-    // '7' : null,
-    // '8' : null,
-    // 'K' : null
-};
-
+const symbolTextures =[];
 const symbolTypes = ['1', '2', '3', '4', '5', '6', '7', '8', 'K'];
+const reels = [];
 export class GameScene extends PIXI.Container {
     constructor (server: Server) {
         super();
@@ -94,27 +84,45 @@ export class GameScene extends PIXI.Container {
 
         this._isInitialized = true;
 
-        /**
-         * DEMO: Temporary show a default board table
-         * TODO: we should split board table to small objects and initialize/manage them
-         */
-        const boardContainer = this.addChild(new PIXI.Container());
-        boardContainer.position = new PIXI.Point(720 / 2, 960 / 2 + 100);
-        const boardWidth = GameScene.SYMBOL_WIDTH * GameScene.NUMBER_OF_REELS;
-        const boardHeight = GameScene.SYMBOL_HEIGHT * GameScene.NUMBER_OF_ROWS;
-        const defaultBoard = ['2', '7', '3', '4', '6', '8', '7', '3', 'K', '1', '5', '3', '4', '5', '6'];
-        defaultBoard.forEach((symbol, idx) => {
+        
+        const reelContainer = new PIXI.Container();
+        reelContainer.position = new PIXI.Point(0,200);
+        for (let i = 0; i < 5; i++)
+        {
+            const rc = new PIXI.Container();
 
-            const reelId = Math.floor(idx / GameScene.NUMBER_OF_ROWS);
-            const symbolId = idx % GameScene.NUMBER_OF_ROWS;
+            rc.x = i * GameScene.SYMBOL_WIDTH;
+            reelContainer.addChild(rc);
 
-            const pos = new PIXI.Point(reelId * GameScene.SYMBOL_WIDTH - boardWidth / 2 + GameScene.SYMBOL_WIDTH / 2, symbolId * GameScene.SYMBOL_HEIGHT - boardHeight / 2);
-            const symbolSpr = new PIXI.Sprite(symbolTextures[symbol]);
-            symbolSpr.position = pos;
-            symbolSpr.anchor.set(0.5);
-            boardContainer.addChild(symbolSpr);
-        });
+            const reel = {
+                container: rc,
+                symbols: [],
+                position: 0,
+                previousPosition: 0,
+                blur: new PIXI.filters.BlurFilter(),
+            };
 
+            reel.blur.blurX = 0;
+            reel.blur.blurY = 0;
+            rc.filters = [reel.blur];
+
+            // Build the symbols
+            for (let j = 0; j < 4; j++)
+            {
+                let randomId=Math.floor(Math.random() * symbolTextures.length);
+                if(randomId==0) randomId++;
+                const symbol = new PIXI.Sprite(symbolTextures[randomId]);
+                // Scale the symbol to fit symbol area.
+                console.log("id:"+randomId);
+                symbol.y = j * GameScene.SYMBOL_HEIGHT;
+                symbol.scale.x = symbol.scale.y = Math.min(GameScene.SYMBOL_HEIGHT / symbol.width, GameScene.SYMBOL_HEIGHT / symbol.height);
+                symbol.x = Math.round((GameScene.SYMBOL_HEIGHT - symbol.width) / 2);
+                reel.symbols.push(symbol);
+                rc.addChild(symbol);
+            }
+            reels.push(reel);
+        }
+        this.addChild(reelContainer);
     }
 
     public onUpdate (dtScalar: number) {
@@ -124,7 +132,8 @@ export class GameScene extends PIXI.Container {
              * Update objects in scene here using dt (delta time)
              * TODO: should call all update function of all the objects in Scene
              */
-            //this._logoSprite.rotation += 0.01;
+            this._logoSprite.rotation += dt;
+            
         }
     }
 
@@ -151,4 +160,5 @@ export class GameScene extends PIXI.Container {
         });
         this.init();
     }
+    
 }
