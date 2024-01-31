@@ -5,6 +5,8 @@ import Server from './Server';
 const symbolTextures =[];
 const symbolTypes = ['1', '2', '3', '4', '5', '6', '7', '8', 'K'];
 const reels = [];
+const tweening = [];
+let running = false;
 export class GameScene extends PIXI.Container {
     constructor (server: Server) {
         super();
@@ -133,12 +135,71 @@ export class GameScene extends PIXI.Container {
              * TODO: should call all update function of all the objects in Scene
              */
             this._logoSprite.rotation += dt;
-            
+            const now = Date.now();
+    const remove = [];
+
+    for (let i = 0; i < tweening.length; i++)
+    {
+        const t = tweening[i];
+        const phase = Math.min(1, (now - t.start) / t.time);
+
+        t.object[t.property] = this.lerp(t.propertyBeginValue, t.target, t.easing(phase));
+        if (t.change) t.change(t);
+        if (phase === 1)
+        {
+            t.object[t.property] = t.target;
+            if (t.complete) t.complete(t);
+            remove.push(t);
         }
     }
+    for (let i = 0; i < remove.length; i++)
+    {
+        tweening.splice(tweening.indexOf(remove[i]), 1);
+    }
+            for (let i = 0; i < reels.length; i++)
+            {
+                const r = reels[i];
+                // Update blur filter y amount based on speed.
+                // This would be better if calculated with time in mind also. Now blur depends on frame rate.
 
+                r.blur.blurY = (r.position - r.previousPosition) * 8;
+                r.previousPosition = r.position;
+
+                // Update symbol positions on reel.
+                for (let j = 0; j < r.symbols.length; j++)
+                {
+                    const s = r.symbols[j];
+                    const prevy = s.y;
+
+                    s.y = ((r.position + j) % r.symbols.length) * GameScene.SYMBOL_HEIGHT - GameScene.SYMBOL_HEIGHT;
+                    if (s.y < 0 && prevy > GameScene.SYMBOL_HEIGHT)
+                    {
+                        // Detect going over and swap a texture.
+                        // This should in proper product be determined from some logical reel.
+                        let randomId=Math.floor(Math.random() * symbolTextures.length);
+                        if(randomId==0) randomId++;
+                        s.texture = symbolTextures[randomId];
+                        s.scale.x = s.scale.y = Math.min(GameScene.SYMBOL_HEIGHT / s.texture.width, GameScene.SYMBOL_HEIGHT / s.texture.height);
+                        s.x = Math.round((GameScene.SYMBOL_HEIGHT - s.width) / 2);
+                    }
+                }
+            }
+        }
+    }
     private _startSpin (): void {
         console.log(` >>> start spin`);
+         if (running) return;
+        running = true;
+
+        for (let i = 0; i < reels.length; i++)
+        {
+            const r = reels[i];
+            const extra = Math.floor(Math.random() * 3);
+            const target = r.position + 10 + i * 5 + extra;
+            const time = 2500 + i * 600 + extra * 600;
+
+            this.tweenTo(r, 'position', target, time, this.backout(0.5), null, i === reels.length - 1 ? this._onSpinDataResponded : null);
+        }
         this._server.requestSpinData();
     }
 
@@ -161,4 +222,30 @@ export class GameScene extends PIXI.Container {
         this.init();
     }
     
+    private tweenTo(object, property, target, time, easing, onchange, oncomplete)
+    {
+        const tween = {
+            object,
+            property,
+            propertyBeginValue: object[property],
+            target,
+            easing,
+            time,
+            change: onchange,
+            complete: oncomplete,
+            start: Date.now(),
+        };
+
+        tweening.push(tween);
+
+        return tween;
+    }
+    private lerp(a1, a2, t)
+    {
+        return a1 * (1 - t) + a2 * t;
+    }
+    private backout(amount)
+    {
+        return (t) => (--t * t * ((amount + 1) * t + amount) + 1);
+    }
 }
