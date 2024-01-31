@@ -4,9 +4,6 @@
 
     const symbolTextures =[];
     const symbolTypes = ['1', '2', '3', '4', '5', '6', '7', '8', 'K'];
-    
-
-
     export class GameScene extends PIXI.Container {
         constructor (server: Server) {
             super();
@@ -52,8 +49,10 @@
         private reelDelayTime=300;
         private results=[];
         private running:boolean;
+        private startSpinTime: Date;
         private reels = [];
         private tweening = [];
+        private minTimeReel=2000;
         public init (): void {
 
             this.addChild(this._logoSprite);
@@ -178,83 +177,122 @@
                 const s = r.symbols[j];
                 const prevy = s.y;
 
-                s.y = ((r.position + j) % r.symbols.length) * GameScene.SYMBOL_HEIGHT;
+                s.y = ((r.position + j) % r.symbols.length) * GameScene.SYMBOL_HEIGHT-GameScene.SYMBOL_HEIGHT;
                 if (s.y < 0 && prevy > GameScene.SYMBOL_HEIGHT)
                 {
-                            // Detect going over and swap a texture.
-                            // This should in proper product be determined from some logical reel.
-                    let randomId=Math.floor(Math.random() * symbolTextures.length);
-                    if(randomId==0) randomId++;
-                    s.texture = symbolTextures[randomId];
+
+                    if(this.results.length==0)
+                    {
+                        let randomId=Math.floor(Math.random() * symbolTextures.length);
+                        if(randomId==0) randomId++;
+                        s.texture = symbolTextures[randomId];
+                    }
+                    else
+                    {
+                     const index=i*r.symbols.length+j;
+                     if(s.texture!=symbolTextures[this.results[index]])
+                     {
+                        console.log('done:'+i+'-'+j+' '+this.results[index]);
+                        s.texture=symbolTextures[this.results[index]];
+                     }
+                    }
                     s.scale.x = s.scale.y = Math.min(GameScene.SYMBOL_HEIGHT / s.texture.width, GameScene.SYMBOL_HEIGHT / s.texture.height);
                     s.x = Math.round((GameScene.SYMBOL_HEIGHT - s.width) / 2);
                 }
-            }
-        }
-    }
-    private _startSpin (): void {
-        console.log(` >>> start spin`);
-        if (this.running) return;
-        this.running = true;
-        this._server.requestSpinData();
-        for (let i = 0; i < this.reels.length; i++)
-        {
-            setTimeout(()=>{
-               const r = this.reels[i];
-               const extra = Math.floor(Math.random() * 3);
-               const target = r.position + 10 + i * 5 + extra;
-               const time = 2500 + i * 600 + extra * 600;
+     }
+ }
+}
+private _startSpin (): void {
+    console.log(` >>> start spin`);
+    this.running = true;
+    this.startSpinTime = new Date(Date.now());
+    this._server.requestSpinData();
+
+    for (let i = 0; i < this.reels.length; i++)
+    {
+        setTimeout(()=>{
+           const r = this.reels[i];
+           const extra = Math.floor(Math.random() * 3);
+           const target = r.position + 10 + i * 5 + extra;
+           const time = 2500 + i * 600 + extra * 600;
+             // console.log(i+' '+time);
+           if(this.running)
                this.tweenTo(r, 'position', target, time, this.backout(0.5), null, null);
-           },i*this.reelDelayTime)
-
-        }
-        
+       },i*this.reelDelayTime)
     }
 
-    private _onSpinDataResponded (data: string[]): void {
-        console.log(` >>> received: ${data}`);
+}
+
+private _onSpinDataResponded (data: string[]): void {
+    console.log(` >>> received: ${data}`);
+    data=['1', '2', '3', '4', '5', '6', '7', '8', 'K','1', '2', '3', '4', '5', '6'];
+    this.results=data;
+      console.log('_onSpinDataResponded results.length:'+this.results.length);
+    const currentTime: number = Date.now();
+    let elapsedTime: number = currentTime - this.startSpinTime.getTime();
+
+    let delay=0;
+    if(elapsedTime<this.minTimeReel)
+        delay=this.minTimeReel-elapsedTime;
+    console.log('elapsedTime: '+elapsedTime+' delay: '+delay);
+    setTimeout(()=>{
+            //this.ShowResults(data);
         this.running=false;
-            /**
-             * Received data from server.
-             * TODO: should proceed in client here to stop the spin and show result.
-             */
+        this.tweening.forEach((item)=>{
+                // console.log(item.time);
+            item.time=Math.min(item.time,3000);
+        });
+    },delay);   
+}
+private ShowResults(data: string[]):void{
+    for (let i = 0; i < this.reels.length; i++)
+    {
+      const r = this.reels[i];
+      for (let j = 0; j < r.symbols.length; j++)
+      {
+        const s = r.symbols[j];
+        const index=i*r.symbols.length+j;
+        s.texture=symbolTextures[data[index]];
+        s.scale.x = s.scale.y = Math.min(GameScene.SYMBOL_HEIGHT / s.texture.width, GameScene.SYMBOL_HEIGHT / s.texture.height);
+        s.x = Math.round((GameScene.SYMBOL_HEIGHT - s.width) / 2);
     }
-
-    private _onAssetsLoaded (loaderInstance: PIXI.Loader, resources: Partial<Record<string, PIXI.LoaderResource>>): void {
+}
+}
+private _onAssetsLoaded (loaderInstance: PIXI.Loader, resources: Partial<Record<string, PIXI.LoaderResource>>): void {
             /**
              * After loading process is finished this function will be called
              */
-        this._logoSprite = new PIXI.Sprite(resources['logo'].texture);
-        symbolTypes.forEach((type) => {
-            symbolTextures[type] = resources[`symbol_${type}`].texture;
-        });
-        this.init();
-    }
-    
-    private tweenTo(object, property, target, time, easing, onchange, oncomplete)
-    {
-        const tween = {
-            object,
-            property,
-            propertyBeginValue: object[property],
-            target,
-            easing,
-            time,
-            change: onchange,
-            complete: oncomplete,
-            start: Date.now(),
-        };
+    this._logoSprite = new PIXI.Sprite(resources['logo'].texture);
+    symbolTypes.forEach((type) => {
+        symbolTextures[type] = resources[`symbol_${type}`].texture;
+    });
+    this.init();
+}
 
-        this.tweening.push(tween);
+private tweenTo(object, property, target, time, easing, onchange, oncomplete)
+{
+    const tween = {
+        object,
+        property,
+        propertyBeginValue: object[property],
+        target,
+        easing,
+        time,
+        change: onchange,
+        complete: oncomplete,
+        start: Date.now(),
+    };
 
-        return tween;
-    }
-    private lerp(a1, a2, t)
-    {
-        return a1 * (1 - t) + a2 * t;
-    }
-    private backout(amount)
-    {
-        return (t) => (--t * t * ((amount + 1) * t + amount) + 1);
-    }
+    this.tweening.push(tween);
+
+    return tween;
+}
+private lerp(a1, a2, t)
+{
+    return a1 * (1 - t) + a2 * t;
+}
+private backout(amount)
+{
+    return (t) => (--t * t * ((amount + 1) * t + amount) + 1);
+}
 }
