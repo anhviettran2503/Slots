@@ -1,6 +1,7 @@
 import * as PIXI from 'pixi.js';
 import { MainApp } from './app';
 import Server from './Server';
+import { debug } from 'webpack';
 
 const symbolTextures = [];
 const symbolTypes = ['1', '2', '3', '4', '5', '6', '7', '8', 'K'];
@@ -45,14 +46,19 @@ export class GameScene extends PIXI.Container {
     private _isInitialized: boolean = false;
     private _logoSprite: PIXI.Sprite;
     private _spinText: PIXI.Text;
-    private factorY = 200;
-    private reelDelayTime = 300;
-    private results = [];
-    private running: boolean;
-    private startSpinTime: Date;
+
     private reels = [];
     private tweening = [];
-    private minTimeReel = 2000;
+
+    private offsetTopBar = 200;
+    private reelDelayTime = 300;
+    private running: boolean;
+    private isHaveResponded: boolean;
+    private defaultTime = 4000;
+    private defaultPosition = 60;
+    private minimumTimeForRun = 2000;
+    private duringTimeAdded = 600;
+    private positionAdded = 6;
     public init(): void {
 
         this.addChild(this._logoSprite);
@@ -89,7 +95,7 @@ export class GameScene extends PIXI.Container {
 
         this._isInitialized = true;
         const reelContainer = new PIXI.Container();
-        reelContainer.position = new PIXI.Point(0, this.factorY);
+        reelContainer.position = new PIXI.Point(0, this.offsetTopBar);
         for (let i = 0; i < 5; i++) {
             const rc = new PIXI.Container();
 
@@ -124,39 +130,40 @@ export class GameScene extends PIXI.Container {
         }
         this.addChild(reelContainer);
     }
-
+    private _onAssetsLoaded(loaderInstance: PIXI.Loader, resources: Partial<Record<string, PIXI.LoaderResource>>): void {
+        /**
+         * After loading process is finished this function will be called
+         */
+        this._logoSprite = new PIXI.Sprite(resources['logo'].texture);
+        symbolTypes.forEach((type) => {
+            symbolTextures[type] = resources[`symbol_${type}`].texture;
+        });
+        this.init();
+    }
+    //#region Update method
     public onUpdate(dtScalar: number) {
         const dt = dtScalar / PIXI.settings.TARGET_FPMS / 1000;
         if (this._isInitialized) {
-            /**
-             * Update objects in scene here using dt (delta time)
-             * TODO: should call all update function of all the objects in Scene
-             */
             this._logoSprite.rotation += dt;
             this.UpdateForTween();
             this.HandleReelsPosition();
         }
     }
     private UpdateForTween(): void {
+        if (this.tweening.length == 0) {
+            this.running = false;
+            return;
+        }
         const now = Date.now();
         const remove = [];
 
         for (let i = 0; i < this.tweening.length; i++) {
             const t = this.tweening[i];
-            let progress;
-            if (!t.shouldContinue) {
-                const elapsed = now - t.start;
-                const slowedElapsed = elapsed * 1.4; 
-                progress = Math.min(1, slowedElapsed / t.time);
-            } else {
-                progress = Math.min(1, (now - t.start) / t.time);
-            }
+            const phase = Math.min(1, (now - t.start) / t.time);
 
-            t.object[t.property] = this.lerp(t.propertyBeginValue, t.target, t.easing(progress));
-
+            t.object[t.property] = this.lerp(t.propertyBeginValue, t.target, t.easing(phase));
             if (t.change) t.change(t);
-
-            if (progress === 1) {
+            if (phase === 1) {
                 t.object[t.property] = t.target;
                 if (t.complete) t.complete(t);
                 remove.push(t);
@@ -175,78 +182,57 @@ export class GameScene extends PIXI.Container {
                 const s = r.symbols[j];
                 const prevy = s.y;
                 s.y = ((r.position + j) % r.symbols.length) * GameScene.SYMBOL_HEIGHT;
-                if (s.y < GameScene.SYMBOL_HEIGHT && prevy > GameScene.SYMBOL_HEIGHT) {
-                    if (this.results.length == 0) {
-                        let randomId = Math.floor(Math.random() * symbolTextures.length);
-                        if (randomId == 0) randomId++;
-                        s.texture = symbolTextures[randomId];
-                    }
-                    else {
-                        const index = i * r.symbols.length + j;
-                        s.texture = symbolTextures[this.results[index]];
-                    }
+                if (s.y < GameScene.SYMBOL_HEIGHT && prevy > GameScene.SYMBOL_HEIGHT && !this.isHaveResponded) {
+                    let randomId = Math.floor(Math.random() * symbolTextures.length);
+                    if (randomId == 0) randomId++;
+                    s.texture = symbolTextures[randomId];
                     s.scale.x = s.scale.y = Math.min(GameScene.SYMBOL_HEIGHT / s.texture.width, GameScene.SYMBOL_HEIGHT / s.texture.height);
                     s.x = Math.round((GameScene.SYMBOL_HEIGHT - s.width) / 2);
                 }
             }
-        }
-    }
-    private StopTweenEarly() {
-        this.tweening.forEach(tween => {
-            tween.shouldContinue = false;
-        })
-    }
-    private SetRandomReels() {
-        for (let i = 0; i < 5; i++) {
-            const r = this.reels[i];
 
-            for (let j = 0; j < r.symbols.length; j++) {
-                const s = r.symbols[j];
-                let randomId = Math.floor(Math.random() * symbolTextures.length);
-                if (randomId == 0) randomId++;
-                s.texture = symbolTextures[randomId];
-                s.scale.x = s.scale.y = Math.min(GameScene.SYMBOL_HEIGHT / s.texture.width, GameScene.SYMBOL_HEIGHT / s.texture.height);
-                s.x = Math.round((GameScene.SYMBOL_HEIGHT - s.width) / 2);
-            }
         }
     }
+
+    //#endregion
+    //#region Handle Game
     private _startSpin(): void {
+        if (this.running) return;
         console.log(` >>> start spin`);
-        this.SetRandomReels();
+        this.isHaveResponded = false;
         this.running = true;
-        this.startSpinTime = new Date(Date.now());
         this._server.requestSpinData();
-        this.RunSpin(true);
+        this.RunReels();
     }
-    private RunSpin(isStartSpin: boolean) {
+    private RunReels() {
         for (let i = 0; i < this.reels.length; i++) {
             setTimeout(() => {
                 const r = this.reels[i];
-                const extra = Math.floor(Math.random() * 3);
-                const target = r.position + 10 + i * 5 + extra;
-                const time = 2500 + i * 600 + extra * 600;
-                if (!isStartSpin) {
-                    const time = 1000;
-                }
+                const time = this.defaultTime-i * 100;
+                const target = r.position + this.defaultPosition;
                 this.tweenTo(r, 'position', target, time, this.backout(0.5), null, null);
             }, i * this.reelDelayTime)
         }
     }
     private _onSpinDataResponded(data: string[]): void {
         console.log(` >>> received: ${data}`);
-        data = ['1', '2', '3', '1', '2', '3', '1', '2', '3', '1', '2', '3', '1', '2', '3'];
-        this.results = data;
-        const currentTime: number = Date.now();
-        let elapsedTime: number = currentTime - this.startSpinTime.getTime();
-        let delay = 0;
-        if (elapsedTime < this.minTimeReel)
-            delay = this.minTimeReel - elapsedTime;
-        // console.log('elapsedTime: ' + elapsedTime + ' delay: ' + delay);
-        setTimeout(() => {
-            this.running = false;
-            //this.ShowResults(data);
-            this.StopTweenEarly();
-        }, delay);
+        console.log(data[0] + ' ' + data[3] + ' ' + data[6] + ' ' + data[9] + ' ' + data[12]);
+        console.log(data[1] + ' ' + data[4] + ' ' + data[7] + ' ' + data[10] + ' ' + data[13]);
+        console.log(data[2] + ' ' + data[5] + ' ' + data[8] + ' ' + data[11] + ' ' + data[14]);
+        this.isHaveResponded = true;
+        this.StopTweenEarly();
+        this.ShowResults(data);
+    }
+    private StopTweenEarly() {
+        const now = Date.now();
+        let duringTime = now - this.tweening[0].start;
+        duringTime += this.duringTimeAdded;
+        if (duringTime < this.minimumTimeForRun) duringTime = this.minimumTimeForRun;
+        for (let i = 0; i < this.tweening.length; i++) {
+            const t = this.tweening[i];
+            t.time = duringTime;
+            t.target += this.positionAdded;
+        }
     }
     private ShowResults(data: string[]): void {
         for (let i = 0; i < this.reels.length; i++) {
@@ -254,24 +240,14 @@ export class GameScene extends PIXI.Container {
             for (let j = 0; j < r.symbols.length; j++) {
                 const s = r.symbols[j];
                 const index = i * r.symbols.length + j;
-                console.log(i + '-' + j + ' ' + s.x + ':' + s.y);
                 s.texture = symbolTextures[data[index]];
                 s.scale.x = s.scale.y = Math.min(GameScene.SYMBOL_HEIGHT / s.texture.width, GameScene.SYMBOL_HEIGHT / s.texture.height);
                 s.x = Math.round((GameScene.SYMBOL_HEIGHT - s.width) / 2);
             }
         }
     }
-    private _onAssetsLoaded(loaderInstance: PIXI.Loader, resources: Partial<Record<string, PIXI.LoaderResource>>): void {
-        /**
-         * After loading process is finished this function will be called
-         */
-        this._logoSprite = new PIXI.Sprite(resources['logo'].texture);
-        symbolTypes.forEach((type) => {
-            symbolTextures[type] = resources[`symbol_${type}`].texture;
-        });
-        this.init();
-    }
-
+    //#endregion
+    //#region Plugin
     private tweenTo(object, property, target, time, easing, onchange, oncomplete) {
         const tween = {
             object,
@@ -283,7 +259,7 @@ export class GameScene extends PIXI.Container {
             change: onchange,
             complete: oncomplete,
             start: Date.now(),
-            shouldContinue:true,
+            shouldContinue: true,
         };
 
         this.tweening.push(tween);
@@ -296,4 +272,5 @@ export class GameScene extends PIXI.Container {
     private backout(amount) {
         return (t) => (--t * t * ((amount + 1) * t + amount) + 1);
     }
+    //#endregion
 }
