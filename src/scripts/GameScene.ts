@@ -65,7 +65,7 @@ export class GameScene extends PIXI.Container {
         this._logoSprite.position.set(720 / 2, 100);
         this._logoSprite.anchor.set(0.5);
         this._logoSprite.scale.set(0.5);
-
+        
         const style = new PIXI.TextStyle({
             fontFamily: 'Arial',
             fontSize: 36,
@@ -96,6 +96,13 @@ export class GameScene extends PIXI.Container {
         this._isInitialized = true;
         const reelContainer = new PIXI.Container();
         reelContainer.position = new PIXI.Point(0, this.offsetTopBar);
+        //Add mask for reel container
+        const mask = new PIXI.Graphics();
+        mask.beginFill(0xFFFFFF); 
+        mask.drawRect(0, 0,  700,700); 
+        mask.endFill();
+        reelContainer.mask=mask;
+        
         for (let i = 0; i < 5; i++) {
             const rc = new PIXI.Container();
 
@@ -129,6 +136,7 @@ export class GameScene extends PIXI.Container {
             this.reels.push(reel);
         }
         this.addChild(reelContainer);
+       
     }
     private _onAssetsLoaded(loaderInstance: PIXI.Loader, resources: Partial<Record<string, PIXI.LoaderResource>>): void {
         /**
@@ -245,7 +253,9 @@ export class GameScene extends PIXI.Container {
                 s.x = Math.round((GameScene.SYMBOL_HEIGHT - s.width) / 2);
             }
         }
+
     }
+    private Mask
     //#endregion
     //#region Plugin
     private tweenTo(object, property, target, time, easing, onchange, oncomplete) {
